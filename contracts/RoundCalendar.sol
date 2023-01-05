@@ -28,10 +28,12 @@ contract RoundCalendar is Ownable{
         return uintStorage[keccak256("BLOCKS_PER_PERIOD")];
     }
     function SET_BLOCKS_PER_PERIOD(uint256 _blocks) onlyOwner public {
+        require(_blocks > 0);
         uintStorage[keccak256("BLOCKS_PER_PERIOD")] = _blocks;
     }
 
     function SET_GENESIS_BLOCK(uint256 _block) onlyOwner public {
+        require(_block > 0);
         uintStorage[keccak256("GENESIS_BLOCK")] = _block;
     }
 

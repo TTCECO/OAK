@@ -18,6 +18,7 @@ contract Ownable is EternalStorage {
     }
     
     function setOwner(address newOwner) internal {
+        require(newOwner != address(0));
         addressStorage[keccak256("owner")] = newOwner;
     }
 }

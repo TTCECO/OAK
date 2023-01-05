@@ -15,6 +15,7 @@ contract Permission is Ownable {
     }
     
     function addAdmin(address _address) onlyOwner public {
+        require(_address != address(0));
         boolStorage[keccak256(abi.encodePacked("admin", _address))] = true;
     }
 }

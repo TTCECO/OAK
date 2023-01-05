@@ -57,6 +57,10 @@ contract RandomDataSource is Permission{
     }
 
    function fillRandomData(uint256 _roundId, uint256[] _indexes) public hasAdminRole{
+       require(_indexes.length > 0, "No data");
+       if(_roundId == 0){
+           _roundId = currentRoundId().sub(1);
+       }
        for(uint256 i=0;i<_indexes.length;i++){
            uint256 _index = _indexes[i];
            bytes32 _roundIndexKey = roundIndexKey(_roundId, _index);
@@ -73,7 +77,7 @@ contract RandomDataSource is Permission{
    function currentRoundId() internal view returns(uint256){
         return RoundCalendar(ROUND_CALENDAR()).CURRENT_ROUND();
     }
-   function getRoundSeed(uint256 _roundId) public view returns(uint){
+   function getRoundSeed(uint256 _roundId) public view returns(uint256){
        if(_roundId == 0){
            _roundId = currentRoundId().sub(1);
        }
