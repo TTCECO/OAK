@@ -62,6 +62,7 @@ contract OAKTGE is Permission, OAKEternalStorage{
         address _randomDataSource,
         address _roundCalendar,
         uint256[] _feeRates,
+        uint256[] _limits,
         address _acnToken, 
         address _oakToken) public{
 
@@ -71,11 +72,16 @@ contract OAKTGE is Permission, OAKEternalStorage{
         require(
             _feeRates[0].add(_feeRates[1]).add(_feeRates[2]).add(_feeRates[3]) == 100, 
             "Please set a correct fee rate");
+        require(
+            _limits[0] > 0 && _limits[1] > 0, "Please set a correct limit");
 
         SET_BASE_FEE_RATE(_feeRates[0]);
         SET_BURN_RATE(_feeRates[1]);
         SET_DEV_FEE_RATE(_feeRates[2]);
         SET_REWARD_RATE(_feeRates[3]);
+
+        SAVE_ROUND_LIMIT(_limits[0], _limits[1]);
+        
         SET_DEV_FEE_ADDRESS(_devFeeReceiver);
         SET_BASE_FEE_ADDRESS(_baseFeeReceiver);
         SET_REWARD_COLLECTOR(_rewardCollector);
@@ -84,6 +90,7 @@ contract OAKTGE is Permission, OAKEternalStorage{
         SET_OAK_ADDRESS(_oakToken);
         SET_RANDOM_DATA_SOURCE(_randomDataSource);
         SET_ROUND_CALENDAR(_roundCalendar);
+
 
         boolStorage[keccak256("initialized")] = true;
   }
@@ -658,10 +665,6 @@ contract OAKTGE is Permission, OAKEternalStorage{
         uintStorage[keccak256(abi.encodePacked("ROUND_TICKETS", _roundID))] = _totalTickets;
     }
 
-    function VIRTUAL_ROUND_INFO(uint256 _roundID)  public view returns (uint256)  {
-        return uintStorage[keccak256(abi.encodePacked("VIRTUAL_ROUND_INFO", _roundID))];
-    }
-
     function SAVE_ROUND_LIMIT(uint256 _userRoundLimit, uint256 _userTimeLimit) onlyOwner public   {
         uintStorage[keccak256("ROUND_TOTAL_LIMIT")] = _userRoundLimit;
         uintStorage[keccak256("ROUND_TIME_LIMIT")] = _userTimeLimit;
@@ -685,10 +688,6 @@ contract OAKTGE is Permission, OAKEternalStorage{
         oakConfig.roundTotalLimit = ROUND_TOTAL_LIMIT();
         oakConfig.roundTimeLimit = ROUND_TIME_LIMIT();
         return oakConfig;
-    }
-
-    function SAVE_VIRTUAL_ROUND_INFO(uint256 _roundID, uint256 _totalTickets) internal  {
-        uintStorage[keccak256(abi.encodePacked("VIRTUAL_ROUND_INFO", _roundID))] = _totalTickets;
     }
 
     function IS_ROUND_ALL_SELECTED(uint256 _roundId) public view returns (bool)  {

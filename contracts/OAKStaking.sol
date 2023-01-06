@@ -179,8 +179,8 @@ contract OAKStaking is Permission,OAKEternalStorage{
         }
          
         (uint256 _totalStaking, uint256 _totalUsers) = STAKING_INFO();
-        if(_totalUsers > 0 && _totalStaking > _currentStakingAmount){
-            _totalStaking = _totalStaking.sub(_currentStakingAmount);
+        if(_totalUsers > 0 && _totalStaking > _amount){
+            _totalStaking = _totalStaking.sub(_amount);
             _totalUsers = _totalUsers.sub(1);
             SAVE_STAKING_INFO(_totalStaking, _totalUsers);
         }
@@ -212,6 +212,8 @@ contract OAKStaking is Permission,OAKEternalStorage{
         require(!IS_ROUND_REWARD_WITHDRAWN(msg.sender, _roundId), "Round ACN Reward has been withdrawn");
         uint256 _snapshotStakingAmount = SNAPSHOT_USER_STAKING_AMOUNT(msg.sender, _roundId);
         uint256 _snapshotTotalStakingAmount = SNAPSHOT_STAKING_AMOUNT(_roundId);
+        require(_snapshotStakingAmount <= _snapshotTotalStakingAmount, "Round reward exception");
+
         uint256 _roundTotalACN = roundACNReward(_roundId);
         uint256 _rewardACNForUser = _snapshotStakingAmount.mul(_roundTotalACN).div(_snapshotTotalStakingAmount);
 
@@ -354,7 +356,7 @@ contract OAKStaking is Permission,OAKEternalStorage{
 
         RewardInfo memory rewardInfo;
         uint256 _rewardACNForUser = 0;
-        if(_snapshotTotalStakingAmount > 0){
+        if(_snapshotTotalStakingAmount > 0 && _snapshotStakingAmount <= _snapshotTotalStakingAmount){
             _rewardACNForUser = _snapshotStakingAmount.mul(_roundTotalACN).div(_snapshotTotalStakingAmount);
         }
         uint256 status = 0;
