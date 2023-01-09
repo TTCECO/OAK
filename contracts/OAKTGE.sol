@@ -7,7 +7,6 @@ import "./IERC20.sol";
 import "./IRoundCalendar.sol";
 import "./IRandomDataSource.sol";
 
-
 contract OAKEternalStorage {
 
     struct OAKTicket {
@@ -19,7 +18,7 @@ contract OAKEternalStorage {
         uint256 baseFeeRate;
         uint256 devFeeRate;
     }
-
+    
     struct OAKConfig {
         uint256 burnFeeRate;//will send this part to the dead address
         uint256 devFeeRate;//will send this part to the dev foundation wallet address

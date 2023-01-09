@@ -57,7 +57,7 @@ contract OAKStaking is Permission,OAKEternalStorage{
         SET_OAKTGE_ADDRESS(_oakTGEAddress);
         SET_ROUND_CALENDAR(_roundCalendar);
         SET_MIN_STAKING_AMOUNT(_minStakingAmount);
-
+        stakerStorage[stakerKey()] = [0xffffffffffffffffffffffffffffffffffffffff];//Set a default index for stakers
         boolStorage[keccak256("initialized")] = true;
   }
 
@@ -81,7 +81,7 @@ contract OAKStaking is Permission,OAKEternalStorage{
     }
     
     function stake(uint256 _amount) public{
-        require(_amount >= MIN_STAKING_AMOUNT(), "Staking amount shoud be greater than 10");
+        require(_amount >= MIN_STAKING_AMOUNT(), "Staking amount shoud be greater than 1");
         IERC20 _token = IERC20(OAK_ADDRESS());
         _token.transferFrom(msg.sender, address(this), _amount);
 
@@ -169,23 +169,28 @@ contract OAKStaking is Permission,OAKEternalStorage{
     function withdrawOAK(uint256 _amount) public{
         uint256 _currentStakingAmount = getStakingAmount(msg.sender);
         require(_amount > 0 && _amount <= _currentStakingAmount, "You dont have enough OAK to withdraw");
-
         bytes32  _userKey = userKey(msg.sender);
         uintStorage[_userKey] = _currentStakingAmount.sub(_amount);
+        uint256 _currentRoundId = currentRoundId();
 
         if(uintStorage[_userKey] == 0){//Clear current user from the stakers if the staking amount is zero
-            address[] memory _stakers = stakerStorage[stakerKey()];
-            delete _stakers[STAKER_INDEX(msg.sender)];
+            bytes32 _stakerKey = stakerKey();
+            address[] memory _stakers = stakerStorage[_stakerKey];
+            uint256 _index = STAKER_INDEX(msg.sender);
+            if(_index > 0  && _index < _stakers.length){
+                delete _stakers[_index];
+                stakerStorage[_stakerKey] = _stakers;
+            }
+            
         }
-         
         (uint256 _totalStaking, uint256 _totalUsers) = STAKING_INFO();
         if(_totalUsers > 0 && _totalStaking > _amount){
             _totalStaking = _totalStaking.sub(_amount);
             _totalUsers = _totalUsers.sub(1);
             SAVE_STAKING_INFO(_totalStaking, _totalUsers);
         }
-
-        uint256 _currentRoundId = currentRoundId();
+        
+        
         UnstakeApplicant memory _unstakeApplicant = ROUND_UNSTAKE_APPLICANT_INFO(msg.sender, _currentRoundId);
         if(_unstakeApplicant.amount == 0){
             bytes32 _unStakerKey = unStakerKey(_currentRoundId);
@@ -200,9 +205,23 @@ contract OAKStaking is Permission,OAKEternalStorage{
         }
         SAVE_UNSTAKE_APPLICANT_INFO(_unstakeApplicant);
 
+        //Update unstake amount
+        updateUnstakeInfo(_currentRoundId, _amount);
         updateSnapshotByUser();
 
         emit OAKWithdrawn(msg.sender, _currentRoundId, _currentStakingAmount, block.number);
+        
+    }
+
+    function updateUnstakeInfo(uint256 _roundId, uint256 _amount) internal  {
+        uint256 _totalUnstake = ROUND_UNSTAKE_AMOUNT(_roundId);
+        _totalUnstake = _totalUnstake.add(_amount);
+        SAVE_ROUND_UNSTAKE_AMOUNT(_roundId, _totalUnstake);
+
+        bytes32  _userUnstakeRoundKey = userUnstakeRoundKey(msg.sender, _roundId);
+        uint256  _roundUnstakeAmount = uintStorage[_userUnstakeRoundKey];
+        _roundUnstakeAmount = _roundUnstakeAmount.add(_amount);
+        uintStorage[_userUnstakeRoundKey] = _roundUnstakeAmount;
         
     }
 
@@ -262,7 +281,7 @@ contract OAKStaking is Permission,OAKEternalStorage{
     }
     //Only For Testing
     function addStakers(address[] _stakers) public hasAdminRole{
-        address[] memory _users = new address[](_stakers.length);
+        address[] memory _users = stakerStorage[stakerKey()];
         for(uint256 i = 0; i< _stakers.length;i++){
             _users[i] = _stakers[i];
         }
@@ -270,25 +289,27 @@ contract OAKStaking is Permission,OAKEternalStorage{
     }
     //Only For Testing
     function clearUserData(address _user, uint256[] _roundIds) public hasAdminRole{
+        uint256 _total = 0;
         for(uint256 i=0;i<_roundIds.length;i++){
             uint256 _roundId = _roundIds[i];
             SAVE_USER_SNAPSHOT_STAKING_AMOUNT(_user, _roundId, 0);
         }
         bytes32  _userKey = userKey(_user);
+        _total = _total.add(uintStorage[_userKey]);
         uintStorage[_userKey] = 0;
+        (uint256 _totalStaking, uint256 _totalUser) = STAKING_INFO();
+        if(_totalStaking > _total){
+            _totalStaking = _totalStaking.sub(_total);
+        }else{
+            _totalStaking = 0;
+        }
+        if(_totalUser > 1){
+            _totalUser = _totalUser.sub(1);
+        }
+        SAVE_STAKING_INFO(_totalStaking, _totalUser);
     }
 
-    function snapshotRoundInfo(uint256 _roundId, uint256 _fromIndex, uint256 _toIndex) public hasAdminRole{
-        require(currentRoundId().sub(_roundId) > 0, "You can only snapshot the history round");
-        address[] memory _users = stakerStorage[stakerKey()];
-        if(_toIndex > _users.length){
-            _toIndex = _users.length;
-        }
-        for(uint256 i = _fromIndex; i < _toIndex;i++){
-            address _user = _users[i];
-            SAVE_USER_SNAPSHOT_STAKING_AMOUNT(_user, _roundId, getStakingAmount(_user));
-        }
-    }
+    
     function snapshotRoundInfo(uint256 _roundId, uint256 _size) public hasAdminRole{
         uint256 _currentRoundId = currentRoundId();
         require(_currentRoundId.sub(_roundId) > 0, "You can only snapshot the history round");
@@ -303,23 +324,31 @@ contract OAKStaking is Permission,OAKEternalStorage{
             if(!USER_SNAPSHOTED(_user,_roundId)){
                 uint256 _currentRoundStakingAmount = getRoundStakingAmount(_user, _currentRoundId);
                 uint256 _currentStakingAmount = getStakingAmount(_user);
+                uint256 _currentRoundUnstakingAmount = getRoundUnStakingAmount(_user, _currentRoundId);
+                if(_currentRoundUnstakingAmount > 0){
+                    _currentStakingAmount = _currentStakingAmount.add(_currentRoundUnstakingAmount);
+                }
                 if(_currentStakingAmount > _currentRoundStakingAmount){
                     _currentStakingAmount = _currentStakingAmount.sub(_currentRoundStakingAmount);
                 }
                 SAVE_USER_SNAPSHOT_STAKING_AMOUNT(_user, _roundId, _currentStakingAmount);
+                SAVE_USER_SNAPSHOTED(_user,_roundId, true);
+
             }
         }
         SAVE_SNAPSHOTED_INDEX(_roundId, _toIndex);
     }
 
-    function snapshotLastRoundInfo(uint256 _fromIndex, uint256 _toIndex) public hasAdminRole{
-        snapshotRoundInfo(currentRoundId() - 1,_fromIndex, _toIndex);
-    }
 
     function snapshotRoundTotalInfo(uint256 _roundId) public hasAdminRole{
         require(OAKTGE(OAKTGE_ADDRESS()).IS_ROUND_RESULTED(_roundId));
         (uint256 _totalStaking,) = STAKING_INFO();
-        (uint256 _roundStakingAmount,) = ROUND_STAKING_INFO(currentRoundId());
+        uint256 _currentRoundId = currentRoundId();
+        (uint256 _roundStakingAmount,) = ROUND_STAKING_INFO(_currentRoundId);
+        uint256 _roundUnStakingAmount = ROUND_UNSTAKE_AMOUNT(_currentRoundId);
+        if(_roundUnStakingAmount > 0){
+            _totalStaking = _totalStaking.add(_roundUnStakingAmount);
+        }
         if(_totalStaking > _roundStakingAmount){
             _totalStaking = _totalStaking.sub(_roundStakingAmount);
         }
@@ -347,6 +376,12 @@ contract OAKStaking is Permission,OAKEternalStorage{
         bytes32  _userRoundKey = userRoundKey(_user, _roundId);
         uint256  _currentRoundStakingAmount = uintStorage[_userRoundKey];
         return   _currentRoundStakingAmount;
+    }
+
+    function getRoundUnStakingAmount(address _user, uint256 _roundId) public view returns(uint256){
+        bytes32  _userUnstakeRoundKey = userUnstakeRoundKey(_user, _roundId);
+        uint256  _roundUnstakeAmount = uintStorage[_userUnstakeRoundKey];
+        return   _roundUnstakeAmount;
     }
 
     function getRoundReward(address _user, uint256 _roundId) public view returns(RewardInfo){
@@ -424,8 +459,12 @@ contract OAKStaking is Permission,OAKEternalStorage{
         uintStorage[keccak256(abi.encodePacked("ROUND_STAKING_INFO_USERS", _roundID))] = _totalStakingUsers;
     }
 
-    function SAVE_ROUND_STAKING_USER(uint256 _roundID, uint256 _totalStakingUsers) internal  {
-        uintStorage[keccak256(abi.encodePacked("ROUND_STAKING_INFO_USERS", _roundID))] = _totalStakingUsers;
+    function ROUND_UNSTAKE_AMOUNT(uint256 _roundId)  public view returns (uint256)  {
+        return uintStorage[keccak256(abi.encodePacked("ROUND_UNSTAKE_AMOUNT", _roundId))];
+    }
+
+    function SAVE_ROUND_UNSTAKE_AMOUNT(uint256 _roundId, uint256 _total) internal  {
+        uintStorage[keccak256(abi.encodePacked("ROUND_UNSTAKE_AMOUNT", _roundId))] = _total;
     }
 
     function SAVE_ROUND_STAKING_AMOUNT(uint256 _roundID, uint256 _totalStakingAmount) internal  {
@@ -563,6 +602,10 @@ contract OAKStaking is Permission,OAKEternalStorage{
 
   function userRoundKey(address _userAddress, uint256 _roundId) internal pure returns(bytes32){
       return keccak256(abi.encodePacked("user_round", _userAddress, _roundId));
+  }
+
+  function userUnstakeRoundKey(address _userAddress, uint256 _roundId) internal pure returns(bytes32){
+      return keccak256(abi.encodePacked("user_round_unstake", _userAddress, _roundId));
   }
 
   function userKey(address _userAddress) internal pure returns(bytes32){
