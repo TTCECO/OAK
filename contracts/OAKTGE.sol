@@ -166,6 +166,8 @@ contract OAKTGE is Permission, OAKEternalStorage{
             _dallyMint = 15625;
              _price = 640;
         }
+
+        _dallyMint = 100;//Only for Testing
         if(PRICE_PER_TICKET() > 0){
             //if there are voted price, return _votedPrice
             _price = PRICE_PER_TICKET();
@@ -221,28 +223,21 @@ contract OAKTGE is Permission, OAKEternalStorage{
       uint256 _totalACN = _tickets * _price * 10**18;
       IERC20 _token = IERC20(ACN_ADDRESS());
       _token.transferFrom(msg.sender, address(this), _totalACN);
-
-      uint256 _blockNumber = block.number;
-      uint256 _BLOCKS_PER_PERIOD = roundCalendarInterface().BLOCKS_PER_PERIOD();
-      uint256 _GENESIS_BLOCK = roundCalendarInterface().GENESIS_BLOCK();
-      uint256 _timeBlocks = _blockNumber - _GENESIS_BLOCK;
-
-      uint256 _sTickets = _tickets;
-      uint256 _dayRoundID = _timeBlocks.ceilDiv(_BLOCKS_PER_PERIOD);
-      uint256 _totalTickets = ROUND_TICKETS(_dayRoundID);
-
-      uint256 _newTotalTickets = _totalTickets.add(_tickets);
-      SAVE_ROUND_TICKETS(_dayRoundID, _newTotalTickets);
-
-      SAVE_ROUND_ACN_INFO(_dayRoundID, _totalACN.add(ROUND_ACN_INFO(_dayRoundID)));
-      storeUserTickets(_dayRoundID, _price, _totalTickets, _sTickets);
-
-    if(totalUserRoundOAKTickets(msg.sender, _dayRoundID) == 0){
-          bytes32 _roundUsersKey = roundUsersKey(_dayRoundID);
+      
+      uint256 _dayRoundId = roundCalendarInterface().CURRENT_ROUND();
+      if(totalUserRoundOAKTickets(msg.sender, _dayRoundId) == 0){//Store current round users
+          bytes32 _roundUsersKey = roundUsersKey(_dayRoundId);
           address[] storage _users = roundUserStorage[_roundUsersKey];
           _users.push(msg.sender);
           roundUserStorage[_roundUsersKey] = _users;
       }
+      uint256 _totalTickets = ROUND_TICKETS(_dayRoundId);
+      uint256 _newTotalTickets = _totalTickets.add(_tickets);
+      SAVE_ROUND_TICKETS(_dayRoundId, _newTotalTickets);
+
+      SAVE_ROUND_ACN_INFO(_dayRoundId, _totalACN.add(ROUND_ACN_INFO(_dayRoundId)));
+      storeUserTickets(_dayRoundId, _price, _totalTickets, _tickets);
+
       return true;
   }
 
@@ -326,15 +321,30 @@ contract OAKTGE is Permission, OAKEternalStorage{
     OAKTicket[] storage _userRoundTickets = userTicketStorage[_userRoundKey];
     uint256 _size =  _toIndex.sub(_fromIndex);
     OAKTicket[] memory _result = new OAKTicket[](_size);
-    bool isSelectedAll = IS_ROUND_ALL_SELECTED(_roundId);
-    uint256 status = IS_ROUND_WITHDRAWN(_user, _roundId) ? 3: (isSelectedAll ? 1:0);
-    if(status == 1 && checkRoundTime(_roundId)){
-        status = 5;
-    }
+    bool isSelectedAll = IS_ROUND_ALL_SELECTED(_roundId);    
     uint256 _rIndex = 0;
     for(uint256 i = _fromIndex; i < _toIndex; i++){
         OAKTicket memory _ticket = _userRoundTickets[i];
-        _ticket.status = status;
+        _ticket.status = 0;
+        if(IS_ROUND_RESULTED(_roundId)){
+            if(checkRewarded(_roundId, _ticket.index )){
+                _ticket.status = 1;
+                if(IS_ROUND_WITHDRAWN(_user, _roundId)){
+                    _ticket.status = 3;
+                }else{
+                    if(_ticket.status == 1 && checkRoundTime(_roundId)){
+                        _ticket.status = 5;
+                    }
+                }
+            }else{
+                if(checkRefunded(_user, _roundId, _ticket.index)){
+                    _ticket.status = 4;
+                }else{
+                    _ticket.status = 2;
+                }
+            }
+        }
+
         _result[_rIndex] = _ticket;
         _rIndex++;
     }
@@ -356,17 +366,27 @@ contract OAKTGE is Permission, OAKEternalStorage{
     uint256 _rIndex = 0;
     for(uint256 i = _fromIndex; i < _toIndex; i++){
         OAKTicket memory _ticket = _userTickets[i];
-        if(IS_ROUND_WITHDRAWN(_user, _ticket.roundId)){
-            _ticket.status = 3;
-        }else{
-            if(IS_ROUND_ALL_SELECTED(_ticket.roundId)){
-                _ticket.status = 1;
-                if(checkRoundTime(_ticket.roundId)){
+        _ticket.status = 0;
+        uint256 _roundId = _ticket.roundId;
+        if(IS_ROUND_RESULTED(_roundId)){
+            if(checkRewarded(_roundId, _ticket.index )){
+            _ticket.status = 1;
+            if(IS_ROUND_WITHDRAWN(_user, _roundId)){
+                _ticket.status = 3;
+            }else{
+                if(_ticket.status == 1 && checkRoundTime(_roundId)){
                     _ticket.status = 5;
                 }
             }
-            
+            }else{
+                if(checkRefunded(_user, _roundId, _ticket.index)){
+                _ticket.status = 4;
+                }else{
+                _ticket.status = 2;
+                }
+            }
         }
+        
         _result[_rIndex] = _ticket;
         _rIndex++;
     }
@@ -404,10 +424,16 @@ contract OAKTGE is Permission, OAKEternalStorage{
         OAKTicket[] storage _userTickets = userTicketStorage[_userRoundKey]; 
         uint256 _refundACN = 0;
         uint256 _totalRate = 100;
+        if(_toIndex > _userTickets.length){
+            _toIndex = _userTickets.length;
+
+        }
         for(uint256 i = _fromIndex; i < _toIndex; i++){
             OAKTicket memory _ticket = _userTickets[i];
               if(!checkRewarded(_roundId, _ticket.index) && !checkRefunded(_user, _roundId, _ticket.index)){
-                  _refundACN.add(_ticket.price.mul(10**18)).mul(_totalRate.sub(_ticket.baseFeeRate).sub(_ticket.devFeeRate)).div(_totalRate);
+                  _refundACN = _refundACN.add(
+                      _ticket.price.mul(10**18).mul(_totalRate.sub(_ticket.baseFeeRate).sub(_ticket.devFeeRate)).div(_totalRate)
+                  );
                   SAVE_IS_ROUND_REFUNDED(_user, _roundId, _ticket.index, true);
               }
         }
