@@ -61,17 +61,24 @@ contract RandomDataSource is Permission{
        if(_roundId == 0){
            _roundId = currentRoundId().sub(1);
        }
+       uint256 _filledTotal = 0;
        for(uint256 i=0;i<_indexes.length;i++){
            uint256 _index = _indexes[i];
            bytes32 _roundIndexKey = roundIndexKey(_roundId, _index);
-           boolStorage[_roundIndexKey] = true;
-           emit RandomIndexed(_roundId, _index);
+           if(!boolStorage[_roundIndexKey]){//prevent duplicated insert
+               boolStorage[_roundIndexKey] = true;
+               emit RandomIndexed(_roundId, _index);
+               _filledTotal++;
+           }
        }
        //Update total of the round data
-       bytes32 _roundIndexCountKey = roundIndexCountKey(_roundId);
-       uint256 _total = uintStorage[_roundIndexCountKey];
-       _total = _total.add(_indexes.length);
-       uintStorage[_roundIndexCountKey] = _total;
+       if(_filledTotal > 0){
+           bytes32 _roundIndexCountKey = roundIndexCountKey(_roundId);
+           uint256 _total = uintStorage[_roundIndexCountKey];
+           _total = _total.add(_filledTotal);
+           uintStorage[_roundIndexCountKey] = _total;
+       }
+       
    }
 
    function currentRoundId() internal view returns(uint256){

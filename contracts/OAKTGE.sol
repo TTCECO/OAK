@@ -273,7 +273,7 @@ contract OAKTGE is Permission, OAKEternalStorage{
 
   function withdrawOAK(uint256 _roundId) public{
       require(checkRoundTime(_roundId), "You should wait for at least 1 round to withdraw");//
-      require(IS_ROUND_RESULTED(_roundId), "Round result has not been executed, please wait");
+      require(checkRoundRewardDataDone(_roundId), "Round result has not been executed, please wait");
       require(!IS_ROUND_WITHDRAWN(msg.sender, _roundId), "Round has been withdrawn");
       require(checkRoundOAKSupply(_roundId), "Round supply exception");
 
@@ -417,16 +417,33 @@ contract OAKTGE is Permission, OAKEternalStorage{
       uint256 _roundBlock = _GENESIS_BLOCK.add(_roundId * _BLOCKS_PER_PERIOD).sub(1);
       return _getPeriodInfo(_roundBlock);
   }
+  function checkRoundRewardDataDone(uint256 _roundId) internal returns(bool){
+      if(IS_ROUND_RESULTED(_roundId)){
+          if(IS_ROUND_ALL_SELECTED(_roundId)){
+              return true;
+          }else{
+                RandomDataSource _random = RandomDataSource(RANDOM_DATA_SOURCE());
+                uint256 _indexCount = _random.randomIndexCount(_roundId);
+                (uint256 _dallyMint,) = getRoundBaseInfo(_roundId);
+                if(_indexCount >= _dallyMint){
+                    return true;
+                }else{
+                    return false;
+                }
+          }
+      }else{
+          return false;
+      }
+  }
 
   function refundUser(address _user, uint256 _roundId, uint256 _fromIndex, uint256 _toIndex) public hasAdminRole{
-        require(IS_ROUND_RESULTED(_roundId));
+        require(checkRoundRewardDataDone(_roundId), "Data has not prepared yet");
         bytes32  _userRoundKey = userRoundKey(_user,_roundId);
         OAKTicket[] storage _userTickets = userTicketStorage[_userRoundKey]; 
         uint256 _refundACN = 0;
         uint256 _totalRate = 100;
         if(_toIndex > _userTickets.length){
             _toIndex = _userTickets.length;
-
         }
         for(uint256 i = _fromIndex; i < _toIndex; i++){
             OAKTicket memory _ticket = _userTickets[i];

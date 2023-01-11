@@ -101,12 +101,13 @@ contract OAKStaking is Permission,OAKEternalStorage{
         SAVE_ROUND_STAKING_INFO(_currentRoundId, _roundTotalStaking, _roundTotalUsers);
 
         (uint256 _totalStaking, uint256 _totalUsers) = STAKING_INFO();
-        if(_currentStakingAmount == 0){
+        if(!IS_STAKING(msg.sender)){
             _totalUsers = _totalUsers.add(1);
             address[] storage _users = stakerStorage[stakerKey()];
             _users.push(msg.sender);
             stakerStorage[stakerKey()] = _users;
-            SAVE_STAKER_INDEX(msg.sender, _users.length-1);            
+            SAVE_STAKER_INDEX(msg.sender, _users.length-1);  
+            SAVE_IS_STAKING(msg.sender, true);          
         }
         
         _totalStaking = _totalStaking.add(_amount);
@@ -181,7 +182,7 @@ contract OAKStaking is Permission,OAKEternalStorage{
                 delete _stakers[_index];
                 stakerStorage[_stakerKey] = _stakers;
             }
-            
+            SAVE_IS_STAKING(msg.sender, false);
         }
         (uint256 _totalStaking, uint256 _totalUsers) = STAKING_INFO();
         if(_totalUsers > 0 && _totalStaking > _amount){
@@ -262,12 +263,19 @@ contract OAKStaking is Permission,OAKEternalStorage{
         address[] memory _result = new address[](_size);
         uint256 _rIndex = 0;
         for(uint256 i = _fromIndex;i<_toIndex;i++){
-            _result[_rIndex] = _users[i];
+            address _user = _users[i];
+             if(!IS_STAKING(_users[i])){
+                 _user = address(0);
+             }
+            _result[_rIndex] = _user;
             _rIndex++;
         }
         return _result;
     }
-
+    
+    function totalStakers() public view returns(uint256){
+        return getStakers().length;
+    }
     //Only For Testing
     function getStakers() public view returns(address[]){
         address[] memory _users = stakerStorage[stakerKey()];
@@ -281,9 +289,10 @@ contract OAKStaking is Permission,OAKEternalStorage{
     }
     //Only For Testing
     function addStakers(address[] _stakers) public hasAdminRole{
-        address[] memory _users = stakerStorage[stakerKey()];
+        address[] storage _users = stakerStorage[stakerKey()];
         for(uint256 i = 0; i< _stakers.length;i++){
-            _users[i] = _stakers[i];
+            _users.push(_stakers[i]);
+            SAVE_IS_STAKING(_stakers[i], true);
         }
         stakerStorage[stakerKey()] = _users;
     }
@@ -598,6 +607,14 @@ contract OAKStaking is Permission,OAKEternalStorage{
 
     function SAVE_STAKER_INDEX(address _user, uint256 _index) internal  {
         uintStorage[keccak256(abi.encodePacked("STAKER_INDEX", _user))] = _index;
+    }
+
+    function IS_STAKING(address _user) public view returns (bool)  {
+        return boolStorage[keccak256(abi.encodePacked("IS_STAKING", _user))];
+    }
+
+    function SAVE_IS_STAKING(address _user, bool _isStaker) internal  {
+        boolStorage[keccak256(abi.encodePacked("IS_STAKING", _user))]= _isStaker;
     }
 
   function userRoundKey(address _userAddress, uint256 _roundId) internal pure returns(bytes32){
