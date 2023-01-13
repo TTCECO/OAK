@@ -34,8 +34,13 @@ contract OAKEternalStorage {
         bool executed;
     }
     
-    mapping(bytes32 => OAKTicket[]) internal userTicketStorage;
+
+
     mapping(bytes32 => address[]) internal roundUserStorage;
+
+    mapping(bytes32 => OAKTicket) internal userTicketMap;
+    mapping(bytes32 => uint256[]) internal userTicketIndexes;
+    mapping(bytes32 => uint256[]) internal userRoundTicketIndexes;
 
 }
 
@@ -166,8 +171,8 @@ contract OAKTGE is Permission, OAKEternalStorage{
             _dallyMint = 15625;
              _price = 640;
         }
-
-        _dallyMint = 100;//Only for Testing
+        _price = 1;//Only for Testing
+        _dallyMint = 500;//Only for Testing
         if(PRICE_PER_TICKET() > 0){
             //if there are voted price, return _votedPrice
             _price = PRICE_PER_TICKET();
@@ -175,56 +180,53 @@ contract OAKTGE is Permission, OAKEternalStorage{
 
   }
 
-  function userRoundKey(address _userAddress, uint256 _roundId) internal pure returns(bytes32){
-      return keccak256(abi.encodePacked("_user_round", _userAddress, _roundId));
-  }
-
-  function userKey(address _userAddress) internal pure returns(bytes32){
-      return keccak256(abi.encodePacked("_user", _userAddress));
-  }
 
   function roundUsersKey(uint256 _roundId) internal pure returns(bytes32){
       return keccak256(abi.encodePacked("round_users", _roundId));
   }
 
 
-  function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTicket, uint256 _totalTickets) internal{
-      bytes32  _userKey = userKey(msg.sender);
-      OAKTicket[] storage _userTickets = userTicketStorage[_userKey];
-      uint256 _toTicket = _fromTicket.add(_totalTickets);
-
-      bytes32  _userRoundKey = userRoundKey(msg.sender, _dayRoundId);
-      OAKTicket[] storage _userRoundTickets = userTicketStorage[_userRoundKey];
-      uint256 _baseFeeRate = BASE_FEE_RATE();
-      uint256 _devFeeRate = DEV_FEE_RATE();
-      for(uint256 i = _fromTicket; i < _toTicket; i++){
-         OAKTicket memory ticket;
-         ticket.block = block.number;
-         ticket.roundId = _dayRoundId;
-         ticket.index = i;
-         ticket.status = 0;
-         ticket.price = _price;
-         ticket.baseFeeRate = _baseFeeRate;
-         ticket.devFeeRate = _devFeeRate;
-        _userTickets.push(ticket);
-        _userRoundTickets.push(ticket);
-        // SAVE_ROUND_USER_INDEX(msg.sender,_dayRoundId,i);
-        emit OAKTicketed(msg.sender, _dayRoundId, i);
-
-      }
-     userTicketStorage[_userKey] = _userTickets;
-     userTicketStorage[_userRoundKey] = _userRoundTickets;
-
+  function ticketIndexKey(address _user) internal pure returns(bytes32){
+      return keccak256(abi.encodePacked("t_index", _user));
   }
 
+  function ticketRoundIndexKey(address _user, uint256 _roundId) internal pure returns(bytes32){
+      return keccak256(abi.encodePacked("t_r_index", _user,_roundId));
+  }
+  
+  function ticketKey(uint256 _index) internal pure returns(bytes32){
+      return keccak256(abi.encodePacked(_index));
+  }
+
+function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTicket, uint256 _totalTickets) internal{
+      uint256 _toTicket = _fromTicket.add(_totalTickets);
+      uint256[] storage userTicketKeys = userTicketIndexes[ticketIndexKey(msg.sender)];
+      bytes32  _userRoundKey = ticketRoundIndexKey(msg.sender, _dayRoundId);
+      uint256[] storage userRoundTicketKeys = userRoundTicketIndexes[_userRoundKey];
+      uint256 _baseFeeRate = BASE_FEE_RATE();
+      uint256 _devFeeRate = DEV_FEE_RATE();
+      uint256 _block = block.number;
+      for(uint256 i = _fromTicket; i < _toTicket; i++){
+          OAKTicket memory ticket = OAKTicket(
+              _block,_dayRoundId,i,0,_price, _baseFeeRate, _devFeeRate
+          );
+          uint256 _index = i.add(_block);
+          userTicketMap[ticketKey(_index)] = ticket;
+          userTicketKeys.push(_index);
+          userRoundTicketKeys.push(_index);
+          emit OAKTicketed(msg.sender, _dayRoundId, i);
+      }
+}
+
+
   function buyOAKTicket(uint256 _tickets) public returns (bool){
-      require(_tickets > 0 && _tickets <= ROUND_TIME_LIMIT(), "Not Allowed to buy more than 25 per payment");      
+      require(_tickets > 0 && _tickets <= 100, "Not Allowed to buy more than 25 per payment");      
       (, uint256 _price) = getPublicPeriodInfo();
       uint256 _totalACN = _tickets * _price * 10**18;
       IERC20 _token = IERC20(ACN_ADDRESS());
       _token.transferFrom(msg.sender, address(this), _totalACN);
       
-      uint256 _dayRoundId = roundCalendarInterface().CURRENT_ROUND();
+       uint256 _dayRoundId = roundCalendarInterface().CURRENT_ROUND();
       if(totalUserRoundOAKTickets(msg.sender, _dayRoundId) == 0){//Store current round users
           bytes32 _roundUsersKey = roundUsersKey(_dayRoundId);
           address[] storage _users = roundUserStorage[_roundUsersKey];
@@ -237,9 +239,12 @@ contract OAKTGE is Permission, OAKEternalStorage{
 
       SAVE_ROUND_ACN_INFO(_dayRoundId, _totalACN.add(ROUND_ACN_INFO(_dayRoundId)));
       storeUserTickets(_dayRoundId, _price, _totalTickets, _tickets);
-
       return true;
   }
+
+
+
+
 
   function checkRewarded(uint256 _roundId, uint256 _index) internal view returns(bool) {
       if(IS_ROUND_ALL_SELECTED(_roundId)){
@@ -272,26 +277,28 @@ contract OAKTGE is Permission, OAKEternalStorage{
   }
 
   function withdrawOAK(uint256 _roundId) public{
-      require(checkRoundTime(_roundId), "You should wait for at least 1 round to withdraw");//
-      require(checkRoundRewardDataDone(_roundId), "Round result has not been executed, please wait");
+      require(checkRoundTime(_roundId), "Round not reached");//
+      require(checkRoundRewardDataDone(_roundId), "Round result has not been executed");
       require(!IS_ROUND_WITHDRAWN(msg.sender, _roundId), "Round has been withdrawn");
       require(checkRoundOAKSupply(_roundId), "Round supply exception");
 
-      bytes32  _userRoundKey = userRoundKey(msg.sender, _roundId);
-      OAKTicket[] storage _userRoundTickets = userTicketStorage[_userRoundKey];
+      bytes32  _userRoundKey = ticketRoundIndexKey(msg.sender, _roundId);
+      uint256[] storage userRoundTicketKeys = userRoundTicketIndexes[_userRoundKey];
+
+      uint256 _total = userRoundTicketKeys.length;
       uint256 _oakNumber = 0;
       bool isSelectedAll = IS_ROUND_ALL_SELECTED(_roundId);
       if(isSelectedAll){
-          _oakNumber = _userRoundTickets.length * 10**18;
+          _oakNumber = _total * 10**18;
       }else{
-          for(uint256 i=0;i<_userRoundTickets.length;i++){
-              OAKTicket memory _ticket = _userRoundTickets[i];
+          for(uint256 i;i<_total;i++){
+              OAKTicket memory _ticket = getTicketByIndex(userRoundTicketKeys[i]);
               if(checkRewarded(_roundId, _ticket.index )){
                   _oakNumber = _oakNumber.add(10**18);
               }
+        }
       }
-      }
-      require(_oakNumber >0, "You dont have OAK to be withdrawn");
+      require(_oakNumber !=0, "You dont have OAK to be withdrawn");
       IERC20 _token = IERC20(OAK_ADDRESS());
       require(_token.mintTo(msg.sender, _oakNumber));
       SAVE_ROUND_OAK_MINT_INFO(_roundId, _oakNumber);
@@ -301,32 +308,35 @@ contract OAKTGE is Permission, OAKEternalStorage{
   }
 
  function totalUserOAKTickets(address _user) public view returns(uint256 _total){
-    OAKTicket[] storage _userTickets = userTicketStorage[userKey(_user)]; 
-    return _userTickets.length;
+      uint256[] storage userTicketKeys = userTicketIndexes[ticketIndexKey(_user)];
+      return userTicketKeys.length;
   }
 
   function totalUserRoundOAKTickets(address _user,uint256 _roundId) public view returns(uint256 _total){
-    bytes32  _userRoundKey = userRoundKey(_user, _roundId);
-    OAKTicket[] storage _userRoundTickets = userTicketStorage[_userRoundKey];
-    return _userRoundTickets.length;
+      uint256[] storage userRoundTicketKeys = userRoundTicketIndexes[ticketRoundIndexKey(_user, _roundId)];
+      return userRoundTicketKeys.length;
+  }
+
+  function getTicketByIndex(uint256 _index) internal view returns(OAKTicket){
+      return userTicketMap[ticketKey(_index)];
   }
 
   function getUserOAKRoundTickets(address _user, uint256 _roundId, uint256 _fromIndex, uint256 _toIndex) public view returns(OAKTicket[] memory){
     require(_toIndex > _fromIndex, "You should set a correct range");
-    uint256 _totalTickets = totalUserRoundOAKTickets(_user, _roundId);
+    bytes32 _userRoundIndexKey = ticketRoundIndexKey(_user, _roundId);
+    uint256[] storage userRoundTicketKeys = userRoundTicketIndexes[_userRoundIndexKey];
+    uint256 _totalTickets = userRoundTicketKeys.length;
     if(_toIndex > _totalTickets){
         _toIndex = _totalTickets;
     }
-    bytes32  _userRoundKey = userRoundKey(_user, _roundId);
-    OAKTicket[] storage _userRoundTickets = userTicketStorage[_userRoundKey];
     uint256 _size =  _toIndex.sub(_fromIndex);
     OAKTicket[] memory _result = new OAKTicket[](_size);
-    bool isSelectedAll = IS_ROUND_ALL_SELECTED(_roundId);    
     uint256 _rIndex = 0;
+    bool roundDone = checkRoundRewardDataDone(_roundId);
     for(uint256 i = _fromIndex; i < _toIndex; i++){
-        OAKTicket memory _ticket = _userRoundTickets[i];
+        OAKTicket memory _ticket = getTicketByIndex(userRoundTicketKeys[i]);
         _ticket.status = 0;
-        if(IS_ROUND_RESULTED(_roundId)){
+        if(IS_ROUND_RESULTED(_roundId) && roundDone){
             if(checkRewarded(_roundId, _ticket.index )){
                 _ticket.status = 1;
                 if(IS_ROUND_WITHDRAWN(_user, _roundId)){
@@ -354,21 +364,24 @@ contract OAKTGE is Permission, OAKEternalStorage{
 
   function getUserOAKTickets(address _user, uint256 _fromIndex, uint256 _toIndex) public view returns(OAKTicket[] memory){
     require(_toIndex > _fromIndex, "You should set a correct range");
+    bytes32  _ticketIndexKey = ticketIndexKey(_user);
+    uint256[] storage userTicketKeys = userTicketIndexes[_ticketIndexKey];
+    uint256 _totalTickets = userTicketKeys.length;
 
-    uint256 _totalTickets = totalUserOAKTickets(_user);
     if(_toIndex > _totalTickets){
         _toIndex = _totalTickets;
     }
-    bytes32  _userKey = userKey(_user);
-    OAKTicket[] storage _userTickets = userTicketStorage[_userKey]; 
+
     uint256 _size =  _toIndex.sub(_fromIndex);
     OAKTicket[] memory _result = new OAKTicket[](_size);
     uint256 _rIndex = 0;
+    bool roundDone = checkRoundRewardDataDone(_roundId);
+
     for(uint256 i = _fromIndex; i < _toIndex; i++){
-        OAKTicket memory _ticket = _userTickets[i];
+        OAKTicket memory _ticket = getTicketByIndex(userTicketKeys[i]);
         _ticket.status = 0;
         uint256 _roundId = _ticket.roundId;
-        if(IS_ROUND_RESULTED(_roundId)){
+        if(IS_ROUND_RESULTED(_roundId) && roundDone){
             if(checkRewarded(_roundId, _ticket.index )){
             _ticket.status = 1;
             if(IS_ROUND_WITHDRAWN(_user, _roundId)){
@@ -438,15 +451,17 @@ contract OAKTGE is Permission, OAKEternalStorage{
 
   function refundUser(address _user, uint256 _roundId, uint256 _fromIndex, uint256 _toIndex) public hasAdminRole{
         require(checkRoundRewardDataDone(_roundId), "Data has not prepared yet");
-        bytes32  _userRoundKey = userRoundKey(_user,_roundId);
-        OAKTicket[] storage _userTickets = userTicketStorage[_userRoundKey]; 
+        bytes32 _userRoundIndexKey = ticketRoundIndexKey(_user, _roundId);
+        uint256[] storage userRoundTicketKeys = userRoundTicketIndexes[_userRoundIndexKey];
+        uint256 _totalTickets = userRoundTicketKeys.length;
+
         uint256 _refundACN = 0;
         uint256 _totalRate = 100;
-        if(_toIndex > _userTickets.length){
-            _toIndex = _userTickets.length;
+        if(_toIndex > _totalTickets){
+            _toIndex = _totalTickets;
         }
         for(uint256 i = _fromIndex; i < _toIndex; i++){
-            OAKTicket memory _ticket = _userTickets[i];
+            OAKTicket memory _ticket = getTicketByIndex(userRoundTicketKeys[i]);
               if(!checkRewarded(_roundId, _ticket.index) && !checkRefunded(_user, _roundId, _ticket.index)){
                   _refundACN = _refundACN.add(
                       _ticket.price.mul(10**18).mul(_totalRate.sub(_ticket.baseFeeRate).sub(_ticket.devFeeRate)).div(_totalRate)
@@ -461,6 +476,7 @@ contract OAKTGE is Permission, OAKEternalStorage{
         }
         
   }
+  
   function generateRoundResultByUser() public{
       uint256 _roundId = roundCalendarInterface().CURRENT_ROUND();
       require(_roundId > 1, "You can only generate the result for last round");

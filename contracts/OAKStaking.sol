@@ -249,7 +249,8 @@ contract OAKStaking is Permission,OAKEternalStorage{
 
     function multiWithdrawACNReward(uint256[] _roundIds) public{
         require(_roundIds.length > 0, "No rounds to withdraw");
-        for(uint256 i = 0;i < _roundIds.length; i++){
+        uint256 _total = _roundIds.length;
+        for(uint256 i;i < _total; i++){
             withdrawACNReward(_roundIds[i]);
         }
     }
@@ -640,10 +641,5 @@ contract OAKStaking is Permission,OAKEternalStorage{
   function initialized() public view returns (bool) {
         return boolStorage[keccak256("initialized")];
   }
-
-  
-
-  
-
 
 }
