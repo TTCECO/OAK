@@ -38,9 +38,11 @@ contract OAKEternalStorage {
 
     mapping(bytes32 => address[]) internal roundUserStorage;
 
-    mapping(bytes32 => OAKTicket) internal userTicketMap;
-    mapping(bytes32 => uint256[]) internal userTicketIndexes;
     mapping(bytes32 => uint256[]) internal userRoundTicketIndexes;
+    mapping(bytes32 => OAKTicket[]) internal userTicketStorage;
+
+
+
 
 }
 
@@ -181,64 +183,64 @@ contract OAKTGE is Permission, OAKEternalStorage{
   }
 
 
-  function roundUsersKey(uint256 _roundId) internal pure returns(bytes32){
-      return keccak256(abi.encodePacked("round_users", _roundId));
+  function userKey(address _userAddress) internal pure returns(bytes32){
+      return keccak256(abi.encodePacked("user_t", _userAddress));
   }
 
-
-  function ticketIndexKey(address _user) internal pure returns(bytes32){
-      return keccak256(abi.encodePacked("t_index", _user));
+  function roundUsersKey(uint256 _roundId) internal pure returns(bytes32){
+      return keccak256(abi.encodePacked("round_users", _roundId));
   }
 
   function ticketRoundIndexKey(address _user, uint256 _roundId) internal pure returns(bytes32){
       return keccak256(abi.encodePacked("t_r_index", _user,_roundId));
   }
-  
-  function ticketKey(uint256 _index) internal pure returns(bytes32){
-      return keccak256(abi.encodePacked(_index));
-  }
+
 
 function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTicket, uint256 _totalTickets) internal{
       uint256 _toTicket = _fromTicket.add(_totalTickets);
-      uint256[] storage userTicketKeys = userTicketIndexes[ticketIndexKey(msg.sender)];
+      OAKTicket[] storage userTickets = userTicketStorage[userKey(msg.sender)];
       bytes32  _userRoundKey = ticketRoundIndexKey(msg.sender, _dayRoundId);
       uint256[] storage userRoundTicketKeys = userRoundTicketIndexes[_userRoundKey];
       uint256 _baseFeeRate = BASE_FEE_RATE();
       uint256 _devFeeRate = DEV_FEE_RATE();
       uint256 _block = block.number;
+      uint256 _total = userTickets.length;
       for(uint256 i = _fromTicket; i < _toTicket; i++){
           OAKTicket memory ticket = OAKTicket(
               _block,_dayRoundId,i,0,_price, _baseFeeRate, _devFeeRate
           );
-          uint256 _index = i.add(_block);
-          userTicketMap[ticketKey(_index)] = ticket;
-          userTicketKeys.push(_index);
-          userRoundTicketKeys.push(_index);
+          userTickets.push(ticket);
+          userRoundTicketKeys.push(_total);
+          _total++;
           emit OAKTicketed(msg.sender, _dayRoundId, i);
       }
 }
 
 
   function buyOAKTicket(uint256 _tickets) public returns (bool){
-      require(_tickets > 0 && _tickets <= 100, "Not Allowed to buy more than 25 per payment");      
-      (, uint256 _price) = getPublicPeriodInfo();
-      uint256 _totalACN = _tickets * _price * 10**18;
-      IERC20 _token = IERC20(ACN_ADDRESS());
-      _token.transferFrom(msg.sender, address(this), _totalACN);
+      require(_tickets > 0 && _tickets <= ROUND_TIME_LIMIT(), "Not Allowed to buy more than 100 per payment"); 
+      uint256 _dayRoundId = roundCalendarInterface().CURRENT_ROUND();
+      uint256 _userRoundTotals = totalUserRoundOAKTickets(msg.sender, _dayRoundId);
+      require(_userRoundTotals.add(_tickets) <= ROUND_TOTAL_LIMIT(), "Not Allowed to buy more than 500 per round");
       
-       uint256 _dayRoundId = roundCalendarInterface().CURRENT_ROUND();
-      if(totalUserRoundOAKTickets(msg.sender, _dayRoundId) == 0){//Store current round users
+      if(_userRoundTotals ==0){//Store current round users
           bytes32 _roundUsersKey = roundUsersKey(_dayRoundId);
           address[] storage _users = roundUserStorage[_roundUsersKey];
           _users.push(msg.sender);
-          roundUserStorage[_roundUsersKey] = _users;
       }
+
+      (, uint256 _price) = getPublicPeriodInfo();
+      uint256 _totalACN = _tickets * _price * 10**18;
+      IERC20 _token = IERC20(ACN_ADDRESS());
+      _token.transferFrom(msg.sender, address(this), _totalACN);  
+
       uint256 _totalTickets = ROUND_TICKETS(_dayRoundId);
       uint256 _newTotalTickets = _totalTickets.add(_tickets);
-      SAVE_ROUND_TICKETS(_dayRoundId, _newTotalTickets);
 
+      SAVE_ROUND_TICKETS(_dayRoundId, _newTotalTickets);
       SAVE_ROUND_ACN_INFO(_dayRoundId, _totalACN.add(ROUND_ACN_INFO(_dayRoundId)));
       storeUserTickets(_dayRoundId, _price, _totalTickets, _tickets);
+      
       return true;
   }
 
@@ -284,7 +286,8 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
 
       bytes32  _userRoundKey = ticketRoundIndexKey(msg.sender, _roundId);
       uint256[] storage userRoundTicketKeys = userRoundTicketIndexes[_userRoundKey];
-
+      OAKTicket[] storage userTickets = userTicketStorage[userKey(msg.sender)];
+      
       uint256 _total = userRoundTicketKeys.length;
       uint256 _oakNumber = 0;
       bool isSelectedAll = IS_ROUND_ALL_SELECTED(_roundId);
@@ -292,7 +295,7 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
           _oakNumber = _total * 10**18;
       }else{
           for(uint256 i;i<_total;i++){
-              OAKTicket memory _ticket = getTicketByIndex(userRoundTicketKeys[i]);
+              OAKTicket memory _ticket = userTickets[userRoundTicketKeys[i]];
               if(checkRewarded(_roundId, _ticket.index )){
                   _oakNumber = _oakNumber.add(10**18);
               }
@@ -308,79 +311,48 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
   }
 
  function totalUserOAKTickets(address _user) public view returns(uint256 _total){
-      uint256[] storage userTicketKeys = userTicketIndexes[ticketIndexKey(_user)];
-      return userTicketKeys.length;
+      OAKTicket[] storage userTickets = userTicketStorage[userKey(_user)];
+      return userTickets.length;
   }
 
   function totalUserRoundOAKTickets(address _user,uint256 _roundId) public view returns(uint256 _total){
       uint256[] storage userRoundTicketKeys = userRoundTicketIndexes[ticketRoundIndexKey(_user, _roundId)];
       return userRoundTicketKeys.length;
   }
-
-  function getTicketByIndex(uint256 _index) internal view returns(OAKTicket){
-      return userTicketMap[ticketKey(_index)];
-  }
-
-  function getUserOAKRoundTickets(address _user, uint256 _roundId, uint256 _fromIndex, uint256 _toIndex) public view returns(OAKTicket[] memory){
+  
+  
+  function getUserOAKRoundTickets(address _user, uint256 _roundId, uint256 _fromIndex, uint256 _toIndex) public view returns(uint256[] memory){
     require(_toIndex > _fromIndex, "You should set a correct range");
-    bytes32 _userRoundIndexKey = ticketRoundIndexKey(_user, _roundId);
-    uint256[] storage userRoundTicketKeys = userRoundTicketIndexes[_userRoundIndexKey];
+    uint256[] storage userRoundTicketKeys = userRoundTicketIndexes[ticketRoundIndexKey(_user, _roundId)];
     uint256 _totalTickets = userRoundTicketKeys.length;
     if(_toIndex > _totalTickets){
         _toIndex = _totalTickets;
     }
     uint256 _size =  _toIndex.sub(_fromIndex);
-    OAKTicket[] memory _result = new OAKTicket[](_size);
+    uint256[] memory _result = new uint256[](_size);
     uint256 _rIndex = 0;
-    bool roundDone = checkRoundRewardDataDone(_roundId);
     for(uint256 i = _fromIndex; i < _toIndex; i++){
-        OAKTicket memory _ticket = getTicketByIndex(userRoundTicketKeys[i]);
-        _ticket.status = 0;
-        if(IS_ROUND_RESULTED(_roundId) && roundDone){
-            if(checkRewarded(_roundId, _ticket.index )){
-                _ticket.status = 1;
-                if(IS_ROUND_WITHDRAWN(_user, _roundId)){
-                    _ticket.status = 3;
-                }else{
-                    if(_ticket.status == 1 && checkRoundTime(_roundId)){
-                        _ticket.status = 5;
-                    }
-                }
-            }else{
-                if(checkRefunded(_user, _roundId, _ticket.index)){
-                    _ticket.status = 4;
-                }else{
-                    _ticket.status = 2;
-                }
-            }
-        }
-
-        _result[_rIndex] = _ticket;
+        _result[_rIndex] = userRoundTicketKeys[i];
         _rIndex++;
     }
     return _result;
   }
 
-
   function getUserOAKTickets(address _user, uint256 _fromIndex, uint256 _toIndex) public view returns(OAKTicket[] memory){
     require(_toIndex > _fromIndex, "You should set a correct range");
-    bytes32  _ticketIndexKey = ticketIndexKey(_user);
-    uint256[] storage userTicketKeys = userTicketIndexes[_ticketIndexKey];
-    uint256 _totalTickets = userTicketKeys.length;
-
+    OAKTicket[] storage userTickets = userTicketStorage[userKey(_user)];
+    uint256 _totalTickets = userTickets.length;
     if(_toIndex > _totalTickets){
         _toIndex = _totalTickets;
     }
-
     uint256 _size =  _toIndex.sub(_fromIndex);
     OAKTicket[] memory _result = new OAKTicket[](_size);
     uint256 _rIndex = 0;
-    bool roundDone = checkRoundRewardDataDone(_roundId);
-
     for(uint256 i = _fromIndex; i < _toIndex; i++){
-        OAKTicket memory _ticket = getTicketByIndex(userTicketKeys[i]);
+        OAKTicket memory _ticket = userTickets[i];
         _ticket.status = 0;
         uint256 _roundId = _ticket.roundId;
+        bool roundDone = checkRoundRewardDataDone(_roundId);
         if(IS_ROUND_RESULTED(_roundId) && roundDone){
             if(checkRewarded(_roundId, _ticket.index )){
             _ticket.status = 1;
@@ -430,7 +402,8 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
       uint256 _roundBlock = _GENESIS_BLOCK.add(_roundId * _BLOCKS_PER_PERIOD).sub(1);
       return _getPeriodInfo(_roundBlock);
   }
-  function checkRoundRewardDataDone(uint256 _roundId) internal returns(bool){
+  
+  function checkRoundRewardDataDone(uint256 _roundId) internal view returns(bool){
       if(IS_ROUND_RESULTED(_roundId)){
           if(IS_ROUND_ALL_SELECTED(_roundId)){
               return true;
@@ -448,7 +421,7 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
           return false;
       }
   }
-
+  
   function refundUser(address _user, uint256 _roundId, uint256 _fromIndex, uint256 _toIndex) public hasAdminRole{
         require(checkRoundRewardDataDone(_roundId), "Data has not prepared yet");
         bytes32 _userRoundIndexKey = ticketRoundIndexKey(_user, _roundId);
@@ -460,8 +433,10 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
         if(_toIndex > _totalTickets){
             _toIndex = _totalTickets;
         }
+
+        OAKTicket[] storage userTickets = userTicketStorage[userKey(_user)];
         for(uint256 i = _fromIndex; i < _toIndex; i++){
-            OAKTicket memory _ticket = getTicketByIndex(userRoundTicketKeys[i]);
+            OAKTicket memory _ticket = userTickets[userRoundTicketKeys[i]];
               if(!checkRewarded(_roundId, _ticket.index) && !checkRefunded(_user, _roundId, _ticket.index)){
                   _refundACN = _refundACN.add(
                       _ticket.price.mul(10**18).mul(_totalRate.sub(_ticket.baseFeeRate).sub(_ticket.devFeeRate)).div(_totalRate)
