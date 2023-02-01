@@ -274,47 +274,11 @@ contract OAKStaking is Permission,OAKEternalStorage{
     function totalStakers() public view returns(uint256){
         return getStakers().length;
     }
-    //Only For Testing
+
     function getStakers() public view returns(address[]){
         address[] memory _users = stakerStorage[stakerKey()];
         return _users;
     }
-
-    //Only For Testing
-    function clearStakers() public hasAdminRole{
-        address[] memory _users;
-        stakerStorage[stakerKey()] = _users;
-    }
-    //Only For Testing
-    function addStakers(address[] _stakers) public hasAdminRole{
-        address[] storage _users = stakerStorage[stakerKey()];
-        for(uint256 i = 0; i< _stakers.length;i++){
-            _users.push(_stakers[i]);
-            SAVE_IS_STAKING(_stakers[i], true);
-        }
-    }
-    //Only For Testing
-    function clearUserData(address _user, uint256[] _roundIds) public hasAdminRole{
-        uint256 _total = 0;
-        for(uint256 i=0;i<_roundIds.length;i++){
-            uint256 _roundId = _roundIds[i];
-            SAVE_USER_SNAPSHOT_STAKING_AMOUNT(_user, _roundId, 0);
-        }
-        bytes32  _userKey = userKey(_user);
-        _total = _total.add(uintStorage[_userKey]);
-        uintStorage[_userKey] = 0;
-        (uint256 _totalStaking, uint256 _totalUser) = STAKING_INFO();
-        if(_totalStaking > _total){
-            _totalStaking = _totalStaking.sub(_total);
-        }else{
-            _totalStaking = 0;
-        }
-        if(_totalUser > 1){
-            _totalUser = _totalUser.sub(1);
-        }
-        SAVE_STAKING_INFO(_totalStaking, _totalUser);
-    }
-
     
     function snapshotRoundInfo(uint256 _roundId, uint256 _size) public hasAdminRole{
         uint256 _currentRoundId = currentRoundId();

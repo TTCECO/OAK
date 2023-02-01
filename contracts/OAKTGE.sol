@@ -178,8 +178,7 @@ contract OAKTGE is Permission, OAKEternalStorage{
             _dailyMint = 15625;
              _price = 640;
         }
-        _price = 1;//Only for Testing
-        _dailyMint = 500;//Only for Testing
+        
         if(PRICE_PER_TICKET() > 0){
             //if there are voted price, return _votedPrice
             _price = PRICE_PER_TICKET();
