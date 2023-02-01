@@ -60,6 +60,11 @@ contract OAKTGE is Permission, OAKEternalStorage{
     event ACNBaseFeeReceived(uint256 round, address _receiver, uint256 amount);
     event ACNRewardReceived(uint256 round, address _receiver, uint256 amount);
 
+    modifier validateRates() {
+        require(BASE_FEE_RATE().add(BURN_RATE()).add(DEV_FEE_RATE()).add(REWARD_RATE()) == 100, "Please set the correct rates");
+        _;
+    }
+
   function initialize(  
         address _owner, 
         address _devFeeReceiver,
@@ -106,9 +111,9 @@ contract OAKTGE is Permission, OAKEternalStorage{
   }
 
   function claimToken(address tokenAddress) onlyOwner public {
-      address _receiverAddress = address(uint160(getReceiverAddress()));
+      address _receiverAddress = getReceiverAddress();
       if(tokenAddress == address(0)){
-          require(_receiverAddress.send(address(this).balance));
+          require(_receiverAddress.call.value(address(this).balance)());
           return;
       }
       IERC20 token = IERC20(tokenAddress);
@@ -127,7 +132,7 @@ contract OAKTGE is Permission, OAKEternalStorage{
   /* Return dailly oak mint info
   /* Return the price that use ACN to buy OAK
   */
-  function getPublicPeriodInfo() public view returns (uint256 _dallyMint, uint256 _price){
+  function getPublicPeriodInfo() public view returns (uint256 _dailyMint, uint256 _price){
         uint256 blockNumber = block.number;
         return _getPeriodInfo(blockNumber);
   }
@@ -136,7 +141,7 @@ contract OAKTGE is Permission, OAKEternalStorage{
       return RoundCalendar(ROUND_CALENDAR());
   }
 
-  function _getPeriodInfo(uint256 blockNumber) internal view returns (uint256 _dallyMint, uint256 _price){
+  function _getPeriodInfo(uint256 blockNumber) internal view returns (uint256 _dailyMint, uint256 _price){
         if(blockNumber == 0){
             blockNumber = block.number;
         }
@@ -152,29 +157,29 @@ contract OAKTGE is Permission, OAKEternalStorage{
         uint256 _MAIN_PERIOD_5 = _MAIN_PERIOD_4 + 360 * _BLOCKS_PER_PERIOD;
 
         if(blockNumber >= _GENESIS_BLOCK && blockNumber < _PRE_PERIOD){
-             _dallyMint = 1000000;
+             _dailyMint = 1000000;
              _price = 10;
         }else if(blockNumber >= _PRE_PERIOD && blockNumber < _MAIN_PERIOD_0){
-            _dallyMint = 500000;
+            _dailyMint = 500000;
             _price = 20;
         }else if(blockNumber >= _MAIN_PERIOD_0 && blockNumber < _MAIN_PERIOD_1){
-            _dallyMint = 250000;
+            _dailyMint = 250000;
             _price = 40;
         }else if(blockNumber >= _MAIN_PERIOD_1 && blockNumber < _MAIN_PERIOD_2){
-            _dallyMint = 12500;
+            _dailyMint = 125000;
              _price = 80;
         }else if(blockNumber >= _MAIN_PERIOD_2 && blockNumber < _MAIN_PERIOD_3){
-            _dallyMint = 62500;
+            _dailyMint = 62500;
              _price = 160;
         }else if(blockNumber >= _MAIN_PERIOD_3 && blockNumber < _MAIN_PERIOD_4){
-            _dallyMint = 31250;
+            _dailyMint = 31250;
              _price = 320;
         }else if(blockNumber >= _MAIN_PERIOD_4 && blockNumber < _MAIN_PERIOD_5){
-            _dallyMint = 15625;
+            _dailyMint = 15625;
              _price = 640;
         }
         _price = 1;//Only for Testing
-        _dallyMint = 500;//Only for Testing
+        _dailyMint = 500;//Only for Testing
         if(PRICE_PER_TICKET() > 0){
             //if there are voted price, return _votedPrice
             _price = PRICE_PER_TICKET();
@@ -262,8 +267,8 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
 
   
   function checkRoundOAKSupply(uint256 _roundId) internal view returns(bool) {
-    (uint256 _dallyMint,) = getRoundBaseInfo(_roundId);
-    if(ROUND_OAK_MINT_INFO(_roundId) <= (_dallyMint * 10**18)){
+    (uint256 _dailyMint,) = getRoundBaseInfo(_roundId);
+    if(ROUND_OAK_MINT_INFO(_roundId) <= (_dailyMint * 10**18)){
         return true;
     }else{
         return false;
@@ -395,7 +400,7 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
     return _result;
   }
 
-  function getRoundBaseInfo(uint256 _roundId) public view returns(uint256 _dallyMint, uint256 _price){
+  function getRoundBaseInfo(uint256 _roundId) public view returns(uint256 _dailyMint, uint256 _price){
       RoundCalendar _roundCalendar = roundCalendarInterface();
       uint256 _BLOCKS_PER_PERIOD = _roundCalendar.BLOCKS_PER_PERIOD();
       uint256 _GENESIS_BLOCK = _roundCalendar.GENESIS_BLOCK();
@@ -403,15 +408,15 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
       return _getPeriodInfo(_roundBlock);
   }
   
-  function checkRoundRewardDataDone(uint256 _roundId) internal view returns(bool){
+  function checkRoundRewardDataDone(uint256 _roundId) internal  view returns(bool){
       if(IS_ROUND_RESULTED(_roundId)){
           if(IS_ROUND_ALL_SELECTED(_roundId)){
               return true;
           }else{
                 RandomDataSource _random = RandomDataSource(RANDOM_DATA_SOURCE());
                 uint256 _indexCount = _random.randomIndexCount(_roundId);
-                (uint256 _dallyMint,) = getRoundBaseInfo(_roundId);
-                if(_indexCount >= _dallyMint){
+                (uint256 _dailyMint,) = getRoundBaseInfo(_roundId);
+                if(_indexCount >= _dailyMint){
                     return true;
                 }else{
                     return false;
@@ -458,9 +463,9 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
       uint256 _lastRoundId = _roundId.sub(1);
       require(!IS_ROUND_RESULTED(_lastRoundId), "Round result has been executed");
 
-      (uint256 _dallyMint,) = getRoundBaseInfo(_lastRoundId);
+      (uint256 _dailyMint,) = getRoundBaseInfo(_lastRoundId);
       uint256 _totalTickets = ROUND_TICKETS(_lastRoundId);
-        if(_totalTickets <= _dallyMint){
+        if(_totalTickets <= _dailyMint){
             SET_IS_ROUND_ALL_SELECTED(_lastRoundId, true);
         }
       processACN(_lastRoundId);
@@ -470,9 +475,9 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
   function generateRoundResultByAdmin(uint256 _roundId) public hasAdminRole{
        require(_roundId < roundCalendarInterface().CURRENT_ROUND(), "You cant generate the future round result");
        require(!IS_ROUND_RESULTED(_roundId), "Round result has been executed");
-        (uint256 _dallyMint,) = getRoundBaseInfo(_roundId);
+        (uint256 _dailyMint,) = getRoundBaseInfo(_roundId);
         uint256 _totalTickets = ROUND_TICKETS(_roundId);
-        if(_totalTickets <= _dallyMint){
+        if(_totalTickets <= _dailyMint){
             SET_IS_ROUND_ALL_SELECTED(_roundId, true);
         }
         SET_IS_ROUND_RESULTED(_roundId, true);
@@ -481,7 +486,7 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
   }
 
   function processACN(uint256 _roundId) internal{
-        (uint256 _dallyMint,uint256 price) = getRoundBaseInfo(_roundId);
+        (uint256 _dailyMint,uint256 price) = getRoundBaseInfo(_roundId);
         uint256 totalOAKs = roundGeneratedOAKs(_roundId);
         uint256 _acnReward = totalOAKs.mul(price).mul(10**18).mul(REWARD_RATE()).div(100);
         uint256 _acnBurn = totalOAKs.mul(price).mul(10**18).mul(BURN_RATE().add(BASE_FEE_RATE())).div(100);
@@ -490,8 +495,8 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
         //Process for non-luckers
         uint256 _actualTotalTickets = ROUND_TICKETS(_roundId);
         uint256 _unRewardedTickets = 0;
-        if(_actualTotalTickets > _dallyMint){
-            _unRewardedTickets = _actualTotalTickets.sub(_dallyMint);
+        if(_actualTotalTickets > _dailyMint){
+            _unRewardedTickets = _actualTotalTickets.sub(_dailyMint);
         }
         if(_unRewardedTickets > 0){
             _acnBurn = _acnBurn.add(_unRewardedTickets.mul(price).mul(10**18).mul(BASE_FEE_RATE()).div(100));
@@ -519,15 +524,14 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
 
   function roundGeneratedOAKs(uint256 _roundId) internal view returns(uint256){
         
-        (uint256 _dallyMint,) = getRoundBaseInfo(_roundId);
+        (uint256 _dailyMint,) = getRoundBaseInfo(_roundId);
          uint256 _totalTickets = ROUND_TICKETS(_roundId);
-         if(_totalTickets <= _dallyMint){
+         if(_totalTickets <= _dailyMint){
              return _totalTickets;
          }else{
-             return _dallyMint;
+             return _dailyMint;
          }
   }
-
 
     function PRICE_PER_TICKET() public view returns (uint256){
         return uintStorage[keccak256("PRICE_PER_TICKET")];
@@ -540,28 +544,28 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
     function BURN_RATE() public view returns (uint256) {
         return uintStorage[keccak256("BURN_RATE")];
     }
-    function SET_BURN_RATE(uint _rate) onlyOwner public  {
+    function SET_BURN_RATE(uint _rate) onlyOwner validateRates public  {
         uintStorage[keccak256("BURN_RATE")] = _rate;
     }
 
     function DEV_FEE_RATE() public view returns (uint256) {
         return uintStorage[keccak256("DEV_FEE_RATE")];
     }
-    function SET_DEV_FEE_RATE(uint _rate) onlyOwner public  {
+    function SET_DEV_FEE_RATE(uint _rate) onlyOwner validateRates public  {
         uintStorage[keccak256("DEV_FEE_RATE")] = _rate;
     }
 
     function REWARD_RATE() public view returns (uint256) {
         return uintStorage[keccak256("REWARD_RATE")];
     }
-    function SET_REWARD_RATE(uint _rate) onlyOwner public  {
+    function SET_REWARD_RATE(uint _rate) onlyOwner validateRates public  {
         uintStorage[keccak256("REWARD_RATE")] = _rate;
     }
 
     function BASE_FEE_RATE() public view returns (uint256) {
         return uintStorage[keccak256("BASE_FEE_RATE")];
     }
-    function SET_BASE_FEE_RATE(uint _rate) onlyOwner public  {
+    function SET_BASE_FEE_RATE(uint _rate) onlyOwner validateRates public  {
         uintStorage[keccak256("BASE_FEE_RATE")] = _rate;
     }
 

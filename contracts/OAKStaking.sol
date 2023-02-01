@@ -57,14 +57,14 @@ contract OAKStaking is Permission,OAKEternalStorage{
         SET_OAKTGE_ADDRESS(_oakTGEAddress);
         SET_ROUND_CALENDAR(_roundCalendar);
         SET_MIN_STAKING_AMOUNT(_minStakingAmount);
-        stakerStorage[stakerKey()] = [0xffffffffffffffffffffffffffffffffffffffff];//Set a default index for stakers
+        stakerStorage[stakerKey()] = [0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF];//Set a default index for stakers
         boolStorage[keccak256("initialized")] = true;
   }
 
   function claimToken(address tokenAddress) onlyOwner public {
-      address _receiverAddress = address(uint160(getReceiverAddress()));
+      address _receiverAddress = getReceiverAddress();
       if(tokenAddress == address(0)){
-          require(_receiverAddress.send(address(this).balance));
+          require(_receiverAddress.call.value(address(this).balance)());
           return;
       }
       IERC20 token = IERC20(tokenAddress);
@@ -105,7 +105,6 @@ contract OAKStaking is Permission,OAKEternalStorage{
             _totalUsers = _totalUsers.add(1);
             address[] storage _users = stakerStorage[stakerKey()];
             _users.push(msg.sender);
-            stakerStorage[stakerKey()] = _users;
             SAVE_STAKER_INDEX(msg.sender, _users.length-1);  
             SAVE_IS_STAKING(msg.sender, true);          
         }
@@ -176,11 +175,10 @@ contract OAKStaking is Permission,OAKEternalStorage{
 
         if(uintStorage[_userKey] == 0){//Clear current user from the stakers if the staking amount is zero
             bytes32 _stakerKey = stakerKey();
-            address[] memory _stakers = stakerStorage[_stakerKey];
+            address[] storage _stakers = stakerStorage[_stakerKey];
             uint256 _index = STAKER_INDEX(msg.sender);
             if(_index > 0  && _index < _stakers.length){
                 delete _stakers[_index];
-                stakerStorage[_stakerKey] = _stakers;
             }
             SAVE_IS_STAKING(msg.sender, false);
         }
@@ -197,7 +195,6 @@ contract OAKStaking is Permission,OAKEternalStorage{
             bytes32 _unStakerKey = unStakerKey(_currentRoundId);
             address[] storage _users = unstakerStorage[_unStakerKey];
             _users.push(msg.sender);
-            unstakerStorage[_unStakerKey] = _users;
             _unstakeApplicant.roundId = _currentRoundId;
             _unstakeApplicant.user = msg.sender;
             _unstakeApplicant.amount = _amount;
@@ -295,7 +292,6 @@ contract OAKStaking is Permission,OAKEternalStorage{
             _users.push(_stakers[i]);
             SAVE_IS_STAKING(_stakers[i], true);
         }
-        stakerStorage[stakerKey()] = _users;
     }
     //Only For Testing
     function clearUserData(address _user, uint256[] _roundIds) public hasAdminRole{
@@ -641,5 +637,10 @@ contract OAKStaking is Permission,OAKEternalStorage{
   function initialized() public view returns (bool) {
         return boolStorage[keccak256("initialized")];
   }
+
+  
+
+  
+
 
 }
