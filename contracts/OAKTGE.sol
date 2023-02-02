@@ -60,11 +60,6 @@ contract OAKTGE is Permission, OAKEternalStorage{
     event ACNBaseFeeReceived(uint256 round, address _receiver, uint256 amount);
     event ACNRewardReceived(uint256 round, address _receiver, uint256 amount);
 
-    modifier validateRates() {
-        require(BASE_FEE_RATE().add(BURN_RATE()).add(DEV_FEE_RATE()).add(REWARD_RATE()) == 100, "Please set the correct rates");
-        _;
-    }
-
   function initialize(  
         address _owner, 
         address _devFeeReceiver,
@@ -79,19 +74,12 @@ contract OAKTGE is Permission, OAKEternalStorage{
 
         require(!initialized());
         setOwner(_owner);
-
-        require(
-            _feeRates[0].add(_feeRates[1]).add(_feeRates[2]).add(_feeRates[3]) == 100, 
-            "Please set a correct fee rate");
+        
         require(
             _limits[0] > 0 && _limits[1] > 0, "Please set a correct limit");
 
-        SET_BASE_FEE_RATE(_feeRates[0]);
-        SET_BURN_RATE(_feeRates[1]);
-        SET_DEV_FEE_RATE(_feeRates[2]);
-        SET_REWARD_RATE(_feeRates[3]);
-
         SAVE_ROUND_LIMIT(_limits[0], _limits[1]);
+        SET_RATES(_feeRates);
         
         SET_DEV_FEE_ADDRESS(_devFeeReceiver);
         SET_BASE_FEE_ADDRESS(_baseFeeReceiver);
@@ -178,7 +166,6 @@ contract OAKTGE is Permission, OAKEternalStorage{
             _dailyMint = 15625;
              _price = 640;
         }
-        
         if(PRICE_PER_TICKET() > 0){
             //if there are voted price, return _votedPrice
             _price = PRICE_PER_TICKET();
@@ -543,29 +530,27 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
     function BURN_RATE() public view returns (uint256) {
         return uintStorage[keccak256("BURN_RATE")];
     }
-    function SET_BURN_RATE(uint _rate) onlyOwner validateRates public  {
-        uintStorage[keccak256("BURN_RATE")] = _rate;
-    }
 
     function DEV_FEE_RATE() public view returns (uint256) {
         return uintStorage[keccak256("DEV_FEE_RATE")];
-    }
-    function SET_DEV_FEE_RATE(uint _rate) onlyOwner validateRates public  {
-        uintStorage[keccak256("DEV_FEE_RATE")] = _rate;
     }
 
     function REWARD_RATE() public view returns (uint256) {
         return uintStorage[keccak256("REWARD_RATE")];
     }
-    function SET_REWARD_RATE(uint _rate) onlyOwner validateRates public  {
-        uintStorage[keccak256("REWARD_RATE")] = _rate;
-    }
 
     function BASE_FEE_RATE() public view returns (uint256) {
         return uintStorage[keccak256("BASE_FEE_RATE")];
     }
-    function SET_BASE_FEE_RATE(uint _rate) onlyOwner validateRates public  {
-        uintStorage[keccak256("BASE_FEE_RATE")] = _rate;
+
+    function SET_RATES(uint[] _feeRates) onlyOwner public  {
+        require(
+            _feeRates[0].add(_feeRates[1]).add(_feeRates[2]).add(_feeRates[3]) == 100, 
+            "Please set a correct fee rate");
+        uintStorage[keccak256("BASE_FEE_RATE")] = _feeRates[0];
+        uintStorage[keccak256("BURN_RATE")] = _feeRates[1];
+        uintStorage[keccak256("DEV_FEE_RATE")] = _feeRates[2];
+        uintStorage[keccak256("REWARD_RATE")] = _feeRates[3];
     }
 
     function RANDOM_DATA_SOURCE() public view returns (address) {
