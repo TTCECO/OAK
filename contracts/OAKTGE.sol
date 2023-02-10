@@ -32,6 +32,14 @@ contract OAKEternalStorage {
         uint256 roundId; 
         bool allSelected;
         bool executed;
+        uint256 actualTickets;
+        uint256 rewardTickets;
+        uint256 dailyMint;
+        uint256 price;
+        uint256 acnBurnt;
+        uint256 acnReward;
+        uint256 acnDev;
+
     }
     
 
@@ -144,25 +152,25 @@ contract OAKTGE is Permission, OAKEternalStorage{
         uint256 _MAIN_PERIOD_4 = _MAIN_PERIOD_3 + 180 * _BLOCKS_PER_PERIOD;
         uint256 _MAIN_PERIOD_5 = _MAIN_PERIOD_4 + 360 * _BLOCKS_PER_PERIOD;
 
-        if(blockNumber >= _GENESIS_BLOCK && blockNumber < _PRE_PERIOD){
+        if(blockNumber >= _GENESIS_BLOCK && blockNumber <= _PRE_PERIOD){
              _dailyMint = 1000000;
              _price = 10;
-        }else if(blockNumber >= _PRE_PERIOD && blockNumber < _MAIN_PERIOD_0){
+        }else if(blockNumber >= _PRE_PERIOD && blockNumber <= _MAIN_PERIOD_0){
             _dailyMint = 500000;
             _price = 20;
-        }else if(blockNumber >= _MAIN_PERIOD_0 && blockNumber < _MAIN_PERIOD_1){
+        }else if(blockNumber >= _MAIN_PERIOD_0 && blockNumber <= _MAIN_PERIOD_1){
             _dailyMint = 250000;
             _price = 40;
-        }else if(blockNumber >= _MAIN_PERIOD_1 && blockNumber < _MAIN_PERIOD_2){
+        }else if(blockNumber >= _MAIN_PERIOD_1 && blockNumber <= _MAIN_PERIOD_2){
             _dailyMint = 125000;
              _price = 80;
-        }else if(blockNumber >= _MAIN_PERIOD_2 && blockNumber < _MAIN_PERIOD_3){
+        }else if(blockNumber >= _MAIN_PERIOD_2 && blockNumber <= _MAIN_PERIOD_3){
             _dailyMint = 62500;
              _price = 160;
-        }else if(blockNumber >= _MAIN_PERIOD_3 && blockNumber < _MAIN_PERIOD_4){
+        }else if(blockNumber >= _MAIN_PERIOD_3 && blockNumber <= _MAIN_PERIOD_4){
             _dailyMint = 31250;
              _price = 320;
-        }else if(blockNumber >= _MAIN_PERIOD_4 && blockNumber < _MAIN_PERIOD_5){
+        }else if(blockNumber >= _MAIN_PERIOD_4 && blockNumber <= _MAIN_PERIOD_5){
             _dailyMint = 15625;
              _price = 640;
         }
@@ -211,6 +219,7 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
   function buyOAKTicket(uint256 _tickets) public returns (bool){
       require(_tickets > 0 && _tickets <= ROUND_TIME_LIMIT(), "Not Allowed to buy more than 100 per payment"); 
       uint256 _dayRoundId = roundCalendarInterface().CURRENT_ROUND();
+      require(_dayRoundId <= 1125, "OAK Purchase has ended");
       uint256 _userRoundTotals = totalUserRoundOAKTickets(msg.sender, _dayRoundId);
       require(_userRoundTotals.add(_tickets) <= ROUND_TOTAL_LIMIT(), "Not Allowed to buy more than 500 per round");
       
@@ -295,7 +304,7 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
       require(_oakNumber !=0, "You dont have OAK to be withdrawn");
       IERC20 _token = IERC20(OAK_ADDRESS());
       require(_token.mintTo(msg.sender, _oakNumber));
-      SAVE_ROUND_OAK_MINT_INFO(_roundId, _oakNumber);
+      SAVE_ROUND_OAK_MINT_INFO(_roundId, _oakNumber.add(ROUND_OAK_MINT_INFO(_roundId)));
       SET_IS_ROUND_WITHDRAWN(msg.sender, _roundId, true);
       emit OAKWithdrawn(msg.sender, _roundId, _oakNumber);
       
@@ -393,7 +402,7 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
       uint256 _roundBlock = _GENESIS_BLOCK.add(_roundId * _BLOCKS_PER_PERIOD).sub(1);
       return _getPeriodInfo(_roundBlock);
   }
-  
+
   function checkRoundRewardDataDone(uint256 _roundId) internal  view returns(bool){
       if(IS_ROUND_RESULTED(_roundId)){
           if(IS_ROUND_ALL_SELECTED(_roundId)){
@@ -499,13 +508,17 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
         if(_acnBurn > 0){
             _token.transfer(DEAD_ADDRESS(), _acnBurn);
             emit ACNBurnt(_roundId, DEAD_ADDRESS(), _acnBurn);
+            SAVE_ROUND_ACN_BURNT(_roundId, _acnBurn);
             SAVE_TOTAL_ACN_BURNT(_acnBurn.add(TOTAL_ACN_BURNT()));
         }
         if(_acnDev > 0){
             _token.transfer(DEV_FEE_ADDRESS(), _acnDev);
             emit ACNDevFeeReceived(_roundId, DEV_FEE_ADDRESS(), _acnDev);
+            SAVE_ROUND_ACN_DEV(_roundId, _acnDev);
             SAVE_TOTAL_ACN_DEV_FEE(_acnDev.add(TOTAL_ACN_DEV_FEE()));
         }
+        //Record the round price when we generate a round result
+        SAVE_ROUND_RESULTED_PRICE(_roundId, price);
   }
 
   function roundGeneratedOAKs(uint256 _roundId) internal view returns(uint256){
@@ -618,10 +631,6 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
         addressStorage[keccak256("OAK_ADDRESS")] = _new;
     }
 
-    function SAVE_ROUND_INFO(uint256 _roundID, uint256 _totalTickets) internal  {
-        uintStorage[keccak256(abi.encodePacked("ROUND_INFO", _roundID))] = _totalTickets;
-    }
-
     function ROUND_ACN_INFO(uint256 _roundID)  public view returns (uint256)  {
         return uintStorage[keccak256(abi.encodePacked("ROUND_ACN_INFO", _roundID))];
     }
@@ -630,12 +639,28 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
         uintStorage[keccak256(abi.encodePacked("ROUND_ACN_INFO", _roundID))] = _totalACN;
     }
 
+    function SAVE_ROUND_ACN_REWARD(uint256 _roundID, uint256 _totalACN) internal  {
+        uintStorage[keccak256(abi.encodePacked("ROUND_ACN_REWARD", _roundID))] = _totalACN;
+    }
+
     function ROUND_ACN_REWARD(uint256 _roundID)  public view returns (uint256)  {
         return uintStorage[keccak256(abi.encodePacked("ROUND_ACN_REWARD", _roundID))];
     }
 
-    function SAVE_ROUND_ACN_REWARD(uint256 _roundID, uint256 _totalACN) internal  {
-        uintStorage[keccak256(abi.encodePacked("ROUND_ACN_REWARD", _roundID))] = _totalACN;
+    function SAVE_ROUND_ACN_BURNT(uint256 _roundID, uint256 _totalACN) internal  {
+        uintStorage[keccak256(abi.encodePacked("ROUND_ACN_BURNT", _roundID))] = _totalACN;
+    }
+
+    function ROUND_ACN_BURNT(uint256 _roundID)  public view returns (uint256)  {
+        return uintStorage[keccak256(abi.encodePacked("ROUND_ACN_BURNT", _roundID))];
+    }
+
+    function SAVE_ROUND_ACN_DEV(uint256 _roundID, uint256 _totalACN) internal  {
+        uintStorage[keccak256(abi.encodePacked("ROUND_ACN_DEV", _roundID))] = _totalACN;
+    }
+
+    function ROUND_ACN_DEV(uint256 _roundID)  public view returns (uint256)  {
+        return uintStorage[keccak256(abi.encodePacked("ROUND_ACN_DEV", _roundID))];
     }
 
     function TOTAL_ACN_REWARDED()  public view returns (uint256)  {
@@ -711,6 +736,13 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
         return oakConfig;
     }
 
+    function SAVE_ROUND_RESULTED_PRICE(uint256 _roundId, uint256 _price) internal {
+        uintStorage[keccak256(abi.encodePacked("ROUND_RESULTED_PRICE", _roundId))] = _price;
+    }
+    function ROUND_RESULTED_PRICE(uint256 _roundId) public view returns (uint256)  {
+        return uintStorage[keccak256(abi.encodePacked("ROUND_RESULTED_PRICE", _roundId))];
+    }
+
     function IS_ROUND_ALL_SELECTED(uint256 _roundId) public view returns (bool)  {
         return boolStorage[keccak256(abi.encodePacked("IS_ROUND_ALL_SELECTED", _roundId))];
     }
@@ -754,7 +786,28 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
         result.roundId = _roundId;
         result.allSelected = IS_ROUND_ALL_SELECTED(_roundId);
         result.executed = IS_ROUND_RESULTED(_roundId);
+        result.actualTickets = ROUND_TICKETS(_roundId);
+        (uint256 _dailyMint, ) = getRoundBaseInfo(_roundId);
+        if(result.actualTickets > _dailyMint){
+            result.rewardTickets = _dailyMint;
+        }else{
+            result.rewardTickets = result.actualTickets;
+        }
+        result.dailyMint = _dailyMint;
+        result.price = ROUND_RESULTED_PRICE(_roundId);
+        result.acnReward = ROUND_ACN_REWARD(_roundId);
+        result.acnBurnt = ROUND_ACN_BURNT(_roundId);
+        result.acnDev = ROUND_ACN_DEV(_roundId);
         return result;
+    }
+    //For oak dashboard website
+    function ROUND_RESULT(uint256[] _roundIds) public view returns (RoundResult[] )  {
+        uint256 _total = _roundIds.length;
+        RoundResult[] memory _result = new RoundResult[](_total);
+        for(uint256 i;i<_total;i++){
+            _result[i] = ROUND_RESULT(_roundIds[i]);
+        }
+        return _result;
     }
 
   function CAL_ROUND_ACN_REWARD(uint256 _roundId) public view returns(uint256){

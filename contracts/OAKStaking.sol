@@ -170,10 +170,11 @@ contract OAKStaking is Permission,OAKEternalStorage{
         uint256 _currentStakingAmount = getStakingAmount(msg.sender);
         require(_amount > 0 && _amount <= _currentStakingAmount, "You dont have enough OAK to withdraw");
         bytes32  _userKey = userKey(msg.sender);
-        uintStorage[_userKey] = _currentStakingAmount.sub(_amount);
+        uint256 _remainStakingAmount = _currentStakingAmount.sub(_amount);
+        uintStorage[_userKey] = _remainStakingAmount;
         uint256 _currentRoundId = currentRoundId();
 
-        if(uintStorage[_userKey] == 0){//Clear current user from the stakers if the staking amount is zero
+        if(_remainStakingAmount == 0){//Clear current user from the stakers if the staking amount is zero
             bytes32 _stakerKey = stakerKey();
             address[] storage _stakers = stakerStorage[_stakerKey];
             uint256 _index = STAKER_INDEX(msg.sender);
@@ -185,7 +186,9 @@ contract OAKStaking is Permission,OAKEternalStorage{
         (uint256 _totalStaking, uint256 _totalUsers) = STAKING_INFO();
         if(_totalUsers > 0 && _totalStaking > _amount){
             _totalStaking = _totalStaking.sub(_amount);
-            _totalUsers = _totalUsers.sub(1);
+            if(_remainStakingAmount == 0){
+                _totalUsers = _totalUsers.sub(1);
+            }
             SAVE_STAKING_INFO(_totalStaking, _totalUsers);
         }
         
@@ -224,7 +227,7 @@ contract OAKStaking is Permission,OAKEternalStorage{
     }
 
     function withdrawACNReward(uint256 _roundId) public{
-        // require(SNAPSHOT_DONE(_roundId), "Snapshot has not been done");
+        require(SNAPSHOT_DONE(_roundId), "Snapshot has not been done");
         require(currentRoundId().sub(_roundId) > 0, "Round ACN Reward should been withdrawn after 1 round");
         require(!IS_ROUND_REWARD_WITHDRAWN(msg.sender, _roundId), "Round ACN Reward has been withdrawn");
         uint256 _snapshotStakingAmount = SNAPSHOT_USER_STAKING_AMOUNT(msg.sender, _roundId);
@@ -274,7 +277,6 @@ contract OAKStaking is Permission,OAKEternalStorage{
     function totalStakers() public view returns(uint256){
         return getStakers().length;
     }
-
     function getStakers() public view returns(address[]){
         address[] memory _users = stakerStorage[stakerKey()];
         return _users;
@@ -282,13 +284,14 @@ contract OAKStaking is Permission,OAKEternalStorage{
     
     function snapshotRoundInfo(uint256 _roundId, uint256 _size) public hasAdminRole{
         uint256 _currentRoundId = currentRoundId();
-        require(_currentRoundId.sub(_roundId) > 0, "You can only snapshot the history round");
+        require(_currentRoundId.sub(_roundId) == 1, "You can only snapshot last round");
         address[] memory _users = stakerStorage[stakerKey()];
         uint256 _fromIndex = SNAPSHOTED_INDEX(_roundId);
         uint256 _toIndex = _fromIndex.add(_size);
         if(_toIndex > _users.length){
             _toIndex = _users.length;
         }
+        uint256 _totalStaking = SNAPSHOT_STAKING_AMOUNT(_roundId);
         for(uint256 i = _fromIndex; i < _toIndex;i++){
             address _user = _users[i];
             if(!USER_SNAPSHOTED(_user,_roundId)){
@@ -303,10 +306,15 @@ contract OAKStaking is Permission,OAKEternalStorage{
                 }
                 SAVE_USER_SNAPSHOT_STAKING_AMOUNT(_user, _roundId, _currentStakingAmount);
                 SAVE_USER_SNAPSHOTED(_user,_roundId, true);
-
             }
+            _totalStaking = _totalStaking.add(SNAPSHOT_USER_STAKING_AMOUNT(_user, _roundId));
         }
         SAVE_SNAPSHOTED_INDEX(_roundId, _toIndex);
+        SAVE_SNAPSHOT_STAKING_AMOUNT(_roundId, _totalStaking);
+        if(_toIndex == _users.length){
+            SAVE_SNAPSHOT_DONE(_roundId, true);
+        }
+
     }
 
 
@@ -314,6 +322,7 @@ contract OAKStaking is Permission,OAKEternalStorage{
         require(OAKTGE(OAKTGE_ADDRESS()).IS_ROUND_RESULTED(_roundId));
         (uint256 _totalStaking,) = STAKING_INFO();
         uint256 _currentRoundId = currentRoundId();
+        require(_currentRoundId.sub(_roundId) == 1, "You can only snapshot last round" );
         (uint256 _roundStakingAmount,) = ROUND_STAKING_INFO(_currentRoundId);
         uint256 _roundUnStakingAmount = ROUND_UNSTAKE_AMOUNT(_currentRoundId);
         if(_roundUnStakingAmount > 0){
@@ -361,7 +370,7 @@ contract OAKStaking is Permission,OAKEternalStorage{
 
         RewardInfo memory rewardInfo;
         uint256 _rewardACNForUser = 0;
-        if(_snapshotTotalStakingAmount > 0 && _snapshotStakingAmount <= _snapshotTotalStakingAmount){
+        if(SNAPSHOT_DONE(_roundId) && _snapshotTotalStakingAmount > 0 && _snapshotStakingAmount <= _snapshotTotalStakingAmount){
             _rewardACNForUser = _snapshotStakingAmount.mul(_roundTotalACN).div(_snapshotTotalStakingAmount);
         }
         uint256 status = 0;
