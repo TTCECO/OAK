@@ -282,7 +282,6 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
       require(checkRoundTime(_roundId), "Round not reached");//
       require(checkRoundRewardDataDone(_roundId), "Round result has not been executed");
       require(!IS_ROUND_WITHDRAWN(msg.sender, _roundId), "Round has been withdrawn");
-      require(checkRoundOAKSupply(_roundId), "Round supply exception");
 
       bytes32  _userRoundKey = ticketRoundIndexKey(msg.sender, _roundId);
       uint256[] storage userRoundTicketKeys = userRoundTicketIndexes[_userRoundKey];
@@ -305,6 +304,8 @@ function storeUserTickets(uint256 _dayRoundId, uint256 _price, uint256 _fromTick
       IERC20 _token = IERC20(OAK_ADDRESS());
       require(_token.mintTo(msg.sender, _oakNumber));
       SAVE_ROUND_OAK_MINT_INFO(_roundId, _oakNumber.add(ROUND_OAK_MINT_INFO(_roundId)));
+      require(checkRoundOAKSupply(_roundId), "Round supply exception");
+      
       SET_IS_ROUND_WITHDRAWN(msg.sender, _roundId, true);
       emit OAKWithdrawn(msg.sender, _roundId, _oakNumber);
       
