@@ -179,7 +179,11 @@ contract OAKStaking is Permission,OAKEternalStorage{
             address[] storage _stakers = stakerStorage[_stakerKey];
             uint256 _index = STAKER_INDEX(msg.sender);
             if(_index > 0  && _index < _stakers.length){
-                delete _stakers[_index];
+                address _lastStaker = _stakers[_stakers.length-1];
+                _stakers[_index] = _lastStaker;
+                SAVE_STAKER_INDEX(_lastStaker, _index);
+                delete _stakers[_stakers.length-1];
+                _stakers.length--;
             }
             SAVE_IS_STAKING(msg.sender, false);
         }
