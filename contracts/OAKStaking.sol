@@ -279,7 +279,8 @@ contract OAKStaking is Permission,OAKEternalStorage{
     }
     
     function totalStakers() public view returns(uint256){
-        return getStakers().length;
+        address[] memory _users = stakerStorage[stakerKey()];
+        return _users.length;
     }
     function getStakers() public view returns(address[]){
         address[] memory _users = stakerStorage[stakerKey()];
